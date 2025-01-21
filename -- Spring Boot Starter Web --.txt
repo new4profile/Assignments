@@ -1,0 +1,303 @@
+<!-- Spring Boot Starter Web -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+
+<!-- Spring Data JPA -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+<!-- H2 Database -->
+<dependency>
+    <groupId>com.h2database</groupId>
+    <artifactId>h2</artifactId>
+    <scope>runtime</scope>
+</dependency>
+
+<!-- OpenFeign -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-openfeign</artifactId>
+</dependency>
+
+<!-- Eureka Client -->
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+</dependency>
+
+<!-- Spring Boot Starter Actuator -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-netflix-eureka-server</artifactId>
+</dependency>
+
+
+
+
+
+
+
+
+
+@SpringBootApplication
+@EnableEurekaServer
+public class EurekaServerApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(EurekaServerApplication.class, args);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+server:
+  port: 8761
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+  server:
+    enable-self-preservation: false
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-gateway</artifactId>
+</dependency>
+
+
+
+@SpringBootApplication
+public class ApiGatewayApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(ApiGatewayApplication.class, args);
+    }
+}
+
+
+
+
+server:
+  port: 8080
+
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: user-service
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/user/**
+        - id: bank-service
+          uri: lb://BANK-SERVICE
+          predicates:
+            - Path=/bank/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+
+
+
+
+
+
+
+
+
+@Entity
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+    private String name;
+    private String address;
+
+    // Getters, Setters, Constructors
+}
+
+
+
+
+public class UserDTO {
+    private int id;
+    private String name;
+    private String address;
+    private List<BankAccountDTO> bankAccounts;
+
+    // Getters, Setters
+}
+
+
+
+public interface UserRepository extends JpaRepository<User, Integer> {}
+
+
+
+@FeignClient(name = "bank-service")
+public interface BankAccountClient {
+    @GetMapping("/bank/user/{userId}")
+    List<BankAccountDTO> getBankAccountsByUserId(@PathVariable int userId);
+}
+
+
+
+
+
+@Service
+public class UserService {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private BankAccountClient bankAccountClient;
+
+    public UserDTO getUserWithAccounts(int userId) {
+        User user = userRepository.findById(userId)
+            .orElseThrow(() -> new RuntimeException("User not found"));
+
+        List<BankAccountDTO> accounts = bankAccountClient.getBankAccountsByUserId(userId);
+
+        UserDTO userDTO = new UserDTO();
+        userDTO.setId(user.getId());
+        userDTO.setName(user.getName());
+        userDTO.setAddress(user.getAddress());
+        userDTO.setBankAccounts(accounts);
+
+        return userDTO;
+    }
+}
+
+
+
+
+
+
+@RestController
+@RequestMapping("/user")
+public class UserController {
+
+    @Autowired
+    private UserService userService;
+
+    @GetMapping("/{id}")
+    public ResponseEntity<UserDTO> getUserWithAccounts(@PathVariable int id) {
+        return ResponseEntity.ok(userService.getUserWithAccounts(id));
+    }
+}
+
+
+
+
+
+
+@Entity
+public class BankAccount {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private int id;
+    private String accountNumber;
+    private String accountType;
+    private int userId;
+
+    // Getters, Setters, Constructors
+}
+
+
+
+
+public class BankAccountDTO {
+    private int id;
+    private String accountNumber;
+    private String accountType;
+    private int userId;
+
+    // Getters, Setters
+}
+
+
+
+public interface BankAccountRepository extends JpaRepository<BankAccount, Integer> {
+    List<BankAccount> findByUserId(int userId);
+}
+
+
+
+
+@Service
+public class BankAccountService {
+    @Autowired
+    private BankAccountRepository bankAccountRepository;
+
+    public List<BankAccountDTO> getAccountsByUserId(int userId) {
+        return bankAccountRepository.findByUserId(userId)
+            .stream()
+            .map(account -> new BankAccountDTO(
+                account.getId(), account.getAccountNumber(),
+                account.getAccountType(), account.getUserId()))
+            .collect(Collectors.toList());
+    }
+}
+
+
+
+
+
+@RestController
+@RequestMapping("/bank")
+public class BankAccountController {
+
+    @Autowired
+    private BankAccountService bankAccountService;
+
+    @GetMapping("/user/{userId}")
+    public List<BankAccountDTO> getAccountsByUserId(@PathVariable int userId) {
+        return bankAccountService.getAccountsByUserId(userId);
+    }
+}
+
+
+
+
+
